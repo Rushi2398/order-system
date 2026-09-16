@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/Rushi2398/order-system/services/order-service/internal/db"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,15 +19,33 @@ func healthHandler(c *gin.Context) {
 }
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		logger.Error("DATABASE_URL is not set")
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, databaseURL)
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
 	gin.SetMode(gin.ReleaseMode) // keep container logs clean; use gin.DebugMode locally for route-table logging
 	router := gin.New()
 	router.Use(gin.Recovery()) // recovers from panics in handlers so one bad request can't crash the service
-	router.GET("/health", healthHandler)
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	// Gin's *gin.Engine implements http.Handler, so it still slots into a
 	// standard http.Server -- this is what lets graceful shutdown work the
