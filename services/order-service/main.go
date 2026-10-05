@@ -11,12 +11,10 @@ import (
 	"time"
 
 	"github.com/Rushi2398/order-system/services/order-service/internal/db"
+	"github.com/Rushi2398/order-system/services/order-service/internal/handlers"
+	"github.com/Rushi2398/order-system/services/order-service/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
-
-func healthHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -40,12 +38,20 @@ func main() {
 	}
 	defer pool.Close()
 
+	orderHandler := handlers.NewOrderHandler(pool, logger)
+
 	gin.SetMode(gin.ReleaseMode) // keep container logs clean; use gin.DebugMode locally for route-table logging
 	router := gin.New()
 	router.Use(gin.Recovery()) // recovers from panics in handlers so one bad request can't crash the service
+	router.Use(middleware.RequestLogger(logger))
+
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	router.POST("/orders", orderHandler.CreateOrder)
+	router.GET("/orders", orderHandler.ListOrders)
+	router.GET("/orders/:id", orderHandler.GetOrder)
 
 	// Gin's *gin.Engine implements http.Handler, so it still slots into a
 	// standard http.Server -- this is what lets graceful shutdown work the
@@ -70,10 +76,10 @@ func main() {
 	<-stop
 
 	log.Println("shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("graceful shutdown failed: %v", err)
 	}
 	log.Println("shutdown complete")

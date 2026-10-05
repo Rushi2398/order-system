@@ -32,6 +32,7 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	}
 
 	var pingErr error
+
 	for attempt := 1; attempt <= 5; attempt++ {
 		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		pingErr = pool.Ping(pingCtx)
@@ -39,8 +40,22 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		if pingErr == nil {
 			return pool, nil
 		}
+		// Don't wait after the final attempt.
+		if attempt == 5 {
+			break
+		}
+
+		// Exponential backoff: 1s, 2s, 4s, 8s
 		backoff := time.Duration(1<<uint(attempt-1)) * time.Second
-		time.Sleep(backoff)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+			// Backoff completed; continue to next attempt.
+		case <-ctx.Done():
+			timer.Stop()
+			pool.Close()
+			return nil, ctx.Err()
+		}
 	}
 
 	pool.Close()

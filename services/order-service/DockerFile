@@ -3,8 +3,13 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 COPY go.mod ./
-RUN go mod download 2>/dev/null || true
 COPY . .
+# go mod tidy (not download) because it resolves and locks the full
+# transitive dependency graph -- pgx and google/uuid pull in packages not
+# yet listed in go.mod, which `go mod download` alone can't resolve.
+# Once go.sum is fully committed and stable, this can switch to
+# `go mod download` for reproducible, network-free builds.
+RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build -o /order-service .
 
 # --- runtime stage ---
